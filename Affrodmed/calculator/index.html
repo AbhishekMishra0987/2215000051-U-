@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Average Calculator Frontend</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .control-panel {
+            padding: 20px;
+            border-radius: 8px;
+            background-color: #f5f5f5;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select, input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .connected {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .disconnected {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .result-panel {
+            padding: 20px;
+            border-radius: 8px;
+            background-color: #f5f5f5;
+        }
+        .result-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .result-box {
+            background-color: white;
+            padding: 15px;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .history {
+            margin-top: 20px;
+        }
+        .history-item {
+            border-bottom: 1px solid #eee;
+            padding: 15px 0;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,.1);
+            border-radius: 50%;
+            border-top-color: #000;
+            animation: spin 1s ease-in-out infinite;
+            margin-left: 10px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>Average Calculator</h1>
+    
+    <div class="container">
+        <div class="control-panel">
+            <div class="form-group">
+                <label for="backendUrl">Backend Service URL</label>
+                <input type="text" id="backendUrl" value="http://localhost:9876" placeholder="Enter backend URL">
+            </div>
+            
+            <div class="form-group">
+                <label for="numberType">Number Type</label>
+                <select id="numberType">
+                    <option value="p">Prime Numbers</option>
+                    <option value="f">Fibonacci Numbers</option>
+                    <option value="e">Even Numbers</option>
+                    <option value="r">Random Numbers</option>
+                </select>
+            </div>
+            
+            <button id="connectBtn">Check Connection</button>
+            <button id="fetchBtn" disabled>Fetch Numbers</button>
+            
+            <div id="connectionStatus" class="status disconnected">
+                Not connected to backend service
+            </div>
+        </div>
+        
+        <div class="result-panel">
+            <h2>Current Result</h2>
+            <div class="result-grid">
+                <div class="result-box">
+                    <h3>Window States</h3>
+                    <p><strong>Previous Window:</strong> <span id="prevWindow">-</span></p>
+                    <p><strong>Current Window:</strong> <span id="currWindow">-</span></p>
+                    <p><strong>Numbers Received:</strong> <span id="numbersReceived">-</span></p>
+                </div>
+                <div class="result-box">
+                    <h3>Calculation Results</h3>
+                    <p><strong>Average:</strong> <span id="averageResult">-</span></p>
+                    <p><strong>Response Time:</strong> <span id="responseTime">-</span> ms</p>
+                    <p><strong>Window Size:</strong> <span id="windowSize">-</span></p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="history">
+            <h2>Request History</h2>
+            <div id="historyList"></div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const backendUrl = document.getElementById('backendUrl');
+        const numberType = document.getElementById('numberType');
+        const connectBtn = document.getElementById('connectBtn');
+        const fetchBtn = document.getElementById('fetchBtn');
+        const connectionStatus = document.getElementById('connectionStatus');
+        
+        // Result elements
+        const prevWindow = document.getElementById('prevWindow');
+        const currWindow = document.getElementById('currWindow');
+        const numbersReceived = document.getElementById('numbersReceived');
+        const averageResult = document.getElementById('averageResult');
+        const responseTime = document.getElementById('responseTime');
+        const windowSize = document.getElementById('windowSize');
+        const historyList = document.getElementById('historyList');
+        
+        // State
+        let isConnected = false;
+        const WINDOW_SIZE = 10;
+        const requestHistory = [];
+        
+        // Event Listeners
+        connectBtn.addEventListener('click', checkBackendConnection);
+        fetchBtn.addEventListener('click', fetchNumbers);
+        
+        // Functions
+        async function checkBackendConnection() {
+            const url = backendUrl.value.trim();
+            if (!url) {
+                updateConnectionStatus(false, 'Please enter a backend URL');
+                return;
+            }
+            
+            try {
+                // Show loading state
+                connectBtn.disabled = true;
+                connectBtn.innerHTML = 'Checking... <span class="loading"></span>';
+                
+                // Try to fetch health endpoint
+                const startTime = performance.now();
+                const response = await fetch(`${url}/health`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    mode: 'cors'
+                });
+                const endTime = performance.now();
+                
+                if (response.ok) {
+                    updateConnectionStatus(true, `Connected successfully (${(endTime - startTime).toFixed(2)}ms)`);
+                    fetchBtn.disabled = false;
+                } else {
+                    updateConnectionStatus(false, `Backend responded with status ${response.status}`);
+                }
+            } catch (error) {
+                updateConnectionStatus(false, `Connection failed: ${error.message}`);
+            } finally {
+                connectBtn.disabled = false;
+                connectBtn.textContent = 'Check Connection';
+            }
+        }
+        
+        function updateConnectionStatus(connected, message) {
+            isConnected = connected;
+            connectionStatus.textContent = message;
+            connectionStatus.className = `status ${connected ? 'connected' : 'disconnected'}`;
+            fetchBtn.disabled = !connected;
+        }
+        
+        async function fetchNumbers() {
+            if (!isConnected) {
+                alert('Please connect to backend first');
+                return;
+            }
+            
+            const type = numberType.value;
+            const url = `${backendUrl.value.trim()}/numbers/${type}`;
+            
+            try {
+                // Show loading state
+                fetchBtn.disabled = true;
+                fetchBtn.innerHTML = 'Fetching... <span class="loading"></span>';
+                
+                const startTime = performance.now();
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    mode: 'cors'
+                });
+                const endTime = performance.now();
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                displayResults(data, endTime - startTime);
+                addToHistory(type, data, endTime - startTime);
+                
+            } catch (error) {
+                updateConnectionStatus(false, `Fetch failed: ${error.message}`);
+                console.error('Fetch error:', error);
+            } finally {
+                fetchBtn.disabled = false;
+                fetchBtn.textContent = 'Fetch Numbers';
+            }
+        }
+        
+        function displayResults(data, duration) {
+            // Format numbers for display
+            const formatNumbers = nums => nums && nums.length > 0 ? nums.join(', ') : 'Empty';
+            
+            // Update UI
+            prevWindow.textContent = formatNumbers(data.windowPrevState);
+            currWindow.textContent = formatNumbers(data.windowCurrState);
+            numbersReceived.textContent = formatNumbers(data.numbers);
+            averageResult.textContent = data.avg ? data.avg.toFixed(2) : '-';
+            responseTime.textContent = duration.toFixed(2);
+            windowSize.textContent = WINDOW_SIZE;
+        }
+        
+        function addToHistory(type, data, duration) {
+            const historyItem = {
+                timestamp: new Date().toLocaleString(),
+                type: getTypeName(type),
+                duration: duration,
+                data: data
+            };
+            
+            requestHistory.unshift(historyItem);
+            renderHistory();
+        }
+        
+        function renderHistory() {
+            historyList.innerHTML = requestHistory.map(item => `
+                <div class="history-item">
+                    <h3>${item.type} - ${item.timestamp}</h3>
+                    <p><strong>Response Time:</strong> ${item.duration.toFixed(2)} ms</p>
+                    <p><strong>Previous Window:</strong> ${item.data.windowPrevState?.join(', ') || 'Empty'}</p>
+                    <p><strong>Current Window:</strong> ${item.data.windowCurrState?.join(', ') || 'Empty'}</p>
+                    <p><strong>Average:</strong> ${item.data.avg?.toFixed(2) || '-'}</p>
+                </div>
+            `).join('');
+        }
+        
+        function getTypeName(type) {
+            const types = {
+                'p': 'Prime Numbers',
+                'f': 'Fibonacci Numbers',
+                'e': 'Even Numbers',
+                'r': 'Random Numbers'
+            };
+            return types[type] || 'Unknown Type';
+        }
+    </script>
+</body>
+</html>
